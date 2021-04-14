@@ -18,6 +18,6 @@
 
 ### 3. Ouput files
 
-- 'tidydata.txt': 181lines output file from the data cleaning processes, with the first row as the col.names and the other 180 rows for the observations.
+- 'tidydata.txt': 181 lines output file from the data cleaning processes, with the 1st line as the col.names and the other 180 lines for the observations.
     
     [Tidy data here](https://github.com/guimiaozhang/datasciencecoursera/blob/main/03_Getting%20and%20Cleaning%20Data/tidydata.txt)
