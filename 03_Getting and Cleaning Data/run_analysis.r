@@ -1,3 +1,6 @@
+## R version 4.0.5 (2021-03-31)
+## Platform: x86_64-w64-mingw32/x64 (64-bit)
+
 ## download, save, unzip files
 fileurl <- 'https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip'
 if(!file.exists('data/project')) {dir.create('data/project')}
