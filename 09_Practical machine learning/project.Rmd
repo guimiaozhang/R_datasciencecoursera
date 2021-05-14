@@ -1,0 +1,217 @@
+---
+title: "Human Activity Recognition using Machine Learning Algorithms"
+author: "Guimiao Zhang"
+output: html_document
+---
+
+## Executive Summary
+
+Based on the dataset provide by [Human Activity Recognition](http://groupware.les.inf.puc-rio.br/har), a series of machine learning algorithms have been performed to train a model for recognizing human activities.
+
+
+Following steps have been conducted:
+
+- loading the data;
+- exploring & processing the training data as needed;
+- building the models & choosing parameters as needed using the training;
+- testing the model using the testing data.
+
+## Data loading
+```{r, message=FALSE, warning=FALSE}
+train <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+test <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+if (!file.exists('data')) {dir.create('data')}
+if (!file.exists('data/train.csv')) {download.file(train, destfile = 'data/train.csv')}
+if (!file.exists('data/test.csv')) {download.file(test, destfile = 'data/test.csv')}
+library(data.table)
+train <- fread('data/train.csv') # training cases
+test <- fread('data/test.csv') # testing cases
+```
+
+## Data exploring & processing
+
+#### General idea
+
+Look at the dimension, classification variable, and basic summary of the dataset.
+```{r, message=FALSE, warning=FALSE}
+which(colnames(train) == 'classe'); summary(train$classe)
+dim(train)
+# summary(train); head(train)
+```
+
+#### Data cleaning
+
+1. There are lots of columns containing `NA`s, try to remove columns with more than 60% of `NA`s.
+
+2. As 1st to 7th columns containing the ID information rather than features of the activities, remove those from the model.
+
+3. Factorize the activity classification variable `classe`.
+```{r}
+nastoomany <- function(vector) {
+    # prepare for removing cols w/ too many nas
+    thres <- sum(is.na(vector)) / length(vector)
+    return(thres > 0.6) # can be 0.5, 0.6, etc, user's choice
+}
+
+colsnonfeatures <- 1:7 # cols w/ only id info but not features
+nas <- sapply(train, nastoomany)
+dat <- train[, c(colnames(train)[!nas]), with = F] # remove na > 60% features
+dat <- dat[, -colsnonfeatures, with = F] # remove cols w/ only id info
+dat <- dat[, classe := lapply(.SD, factor), .SDcols = 'classe'] # factor classes
+dim(dat)
+# summary(dat)
+which(colnames(dat) == 'classe')
+```
+
+#### Spliting the training cases into training set & validating set
+```{r, message=FALSE, warning=FALSE}
+set.seed(4)
+library(caret)
+# split dataset into training : validating = 7:3
+validates <- createDataPartition(y = dat$classe, p = 0.3, list = F)
+training <- dat[!validates, ]
+validating <- dat[validates, ]
+dim(training); dim(validating)
+```
+
+## Building models
+
+#### Reduce the dimensionality
+
+As the curse of dimensionality exists in machine learning, and we do have 53 features for each cases, the principle component analysis is involved though it is difficult to interpret. After PCA is adopted, we reduced the number of features to 18 while keeping 90% of the variability. This will speed up the algorithms though we loose some information.
+```{r,cache=TRUE}
+# 53 features, consider PCAs reduce dimensionality
+pcas <- preProcess(training[, -53], 'pca', thresh = 0.9)
+trains <- predict(pcas, training)
+vals <- predict(pcas, validating)
+pcas
+# pcas$rotation
+```
+
+#### Random forest
+```{r, cache=TRUE}
+fit <- train(classe ~ ., data = trains, method = 'rf')
+trainpred <- predict(fit, trains)
+valspred <- predict(fit, vals)
+valres <- confusionMatrix(valspred, validating$classe)
+fit$bestTune; fit$results
+valres$overall['Accuracy']
+```
+
+The best tuning for the number of variables randomly sampled as candidates at each split is 2 where the best accuracy is chosen as the metric and 500 trees were built.
+
+#### Support vector machines
+```{r, message=FALSE, warning=FALSE,cache=TRUE}
+# svm
+fit1 <- train(classe ~ ., data = trains, method = 'svmRadial')
+fit1$bestTune; fit1$results
+trainpred1 <- predict(fit1, trains)
+valspred1 <- predict(fit1, vals)
+valres1 <- confusionMatrix(valspred1, validating$classe)
+valres1$overall['Accuracy']
+```
+Radial basis function kernel is adopted here. The best tuning for sigma and C are 0.03725637 and 1 respectively where the best accuracy is chosen as the metric.
+
+#### K-nearest neighbor
+```{r, message=FALSE, warning=FALSE, cache=TRUE, fig.cap='\\label{fig:f1}Accuracies vs K for KNN models'}
+# knn
+library(class)
+ks <- seq(1, 21, 2) # try to tune the number of nearest neighbor
+tacc <- c(); vacc <- c()
+for(i in 1:length(ks)) {
+    tpred <- knn(trains[, -1], trains[, -1], trains$classe, k = ks[i])
+    vpred <- knn(trains[, -1], vals[, -1], trains$classe, k = ks[i])
+    tacc[i] <- sum(tpred == trains$classe) / length(tpred)
+    vacc[i] <- sum(vpred == vals$classe) / length(vpred)
+}
+
+plot(ks, tacc, xaxt = 'n', ylim = c(0.86, 1), xlab = 'K', ylab = 'accuracy', type = 'o', main = 'K-NN tuning for K')
+points(ks, vacc, col = 'red', pch = 2)
+lines(ks, vacc, col = 'red')
+axis(1, at = ks, label = ks)
+legend('bottomleft', bty = 'n', legend = c('training', 'validating'), pch = 1:2, lty = 1, col = 1:2)
+```
+
+As shown in the figure \ref{fig:f1}, `k=1` is chosen for best accuracy.
+
+```{r, message=FALSE, warning=FALSE,cache=TRUE}
+trainpred2 <- knn(trains[, -1], trains[, -1], trains$classe, k = 1)
+valspred2 <- knn(trains[, -1], vals[, -1], trains$classe, k = 1)
+```
+
+#### Majority vote
+As different machine learning algorithm may classify the activities into different labels, simple majority vote is adopted here.
+
+```{r, message=FALSE, warning=FALSE}
+library(mclust)
+dftrain <- data.frame(trainpred, trainpred1, trainpred2)
+dfval <- data.frame(valspred, valspred1, valspred2)
+tvotepred <- apply(dftrain, 1, majorityVote) %>% simplify2array
+vvotepred <- apply(dfval, 1, majorityVote) %>% simplify2array
+tvoteacc <- sum(tvotepred[3,] == trains$classe) / length(trains$classe) # train acc.
+vvoteacc <- sum(vvotepred[3,] == vals$classe) /length(vals$classe) # val. acc.
+```
+
+#### Brief summary
+```{r,fig.cap='\\label{fig:f2}Accuracies vs Algorithms'}
+trainaccs <- c(fit$results$Accuracy[1], fit1$results$Accuracy[1], tacc[1], tvoteacc)
+valaccs <- c(valres$overall['Accuracy'], valres1$overall['Accuracy'], vacc[1], vvoteacc)
+plot(trainaccs, xaxt = 'n', type = 'o', xlab = '', ylab = 'accuracy', main = 'Accuracies vs Algorithms')
+axis(1, at = 1:4, label = c('random forest', 'svm', 'knn', 'majority vote'))
+abline(v = 1:4, lty = 2, col = 'grey')
+points(valaccs, col = 2)
+lines(valaccs, col = 2)
+legend('bottomright', bty = 'n', legend = c('training', 'validating'), pch = 1, lty = 1, col = 1:2)
+```
+
+From figure \ref{fig:f2}, we can see that for this specific dataset, SVM model built here does not works well. 
+
+```{r, warning=FALSE,message=FALSE}
+my_tbl <- tibble::tribble(
+  ~accuracy, ~training, ~validating,
+      "random forest", 0.9594213,   0.9696043,
+                "svm", 0.8750352,   0.8731533,
+                "knn",         1,    0.984038,
+      "majority vote",         1,   0.9726609
+  )
+
+require(knitr)
+kable(my_tbl, digits = 4, row.names = FALSE, align = "c",
+              caption = 'Accuracies for different algorithms on training set & validating set')
+
+```
+
+## Prediction on testing cases
+
+1. Process the dataset as done for training cases
+```{r}
+test[, c(colnames(train)[nas]):= NULL] # remove cols w/ too many nas
+tests <- predict(pcas, test[, -colsnonfeatures, with = F]) # change to pcas 
+```
+
+2. Predictions
+```{r, results='hold'}
+# random forest
+testpred <- predict(fit, tests)
+
+# svm
+testpred1 <- predict(fit1, tests)
+
+# knn
+testpred2 <- knn(trains[, -1], tests[, -1], trains$classe, k = 1)
+
+# majority vote for prediction
+preds <- data.frame(testpred, testpred1, testpred2)
+pred <- apply(preds, 1, majorityVote) %>% simplify2array
+pred <- pred[3, ] %>% simplify2array %>% factor
+
+output <- cbind('random forest' = testpred, 
+                'svm' = testpred1,
+                'knn'= testpred2,
+                'majority vote'= pred)
+output <- apply(output, 1, factor, levels = 1:5, labels = LETTERS[1:5])
+colnames(output) <- paste0('problem_', 1:20)
+print('The predictions for the testing cases are:')
+output
+```
+
