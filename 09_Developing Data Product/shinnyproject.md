@@ -18,6 +18,7 @@ Full details please go through via the app page.
 - The GitHub repository containing the R codes required to build the Shiny App can be accessed via
     [server.R](https://github.com/guimiaozhang/R_datasciencecoursera/blob/main/09_Developing%20Data%20Product/server.R)
     & [ui.R](https://github.com/guimiaozhang/R_datasciencecoursera/blob/c01382be31eb08ca49520f9b7e8a8fe71988862a/09_Developing%20Data%20Product/ui.R).
+- The presentation is [here](https://rpubs.com/guimiao/shinnyapp).
 - The Shiny app can be accessed [here](https://rpubs.com/guimiao/shinnyapp).
 
 Dataset
